@@ -1,0 +1,8 @@
+altair
+ipython
+jupyterlab
+jupytext
+numpy
+pandas
+pyarrow
+scikit-learn
