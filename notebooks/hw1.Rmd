@@ -1,0 +1,339 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.13.8
+  kernelspec:
+    display_name: Python 3 (ipykernel)
+    language: python
+    name: python3
+---
+
+# Initialization
+
+
+## Imports
+
+```{python}
+import logging
+import sys
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)-5.5s] [%(threadName)-12.12s] %(name)s: %(message)s",
+    handlers=[
+        # console handler writing to stdout
+        logging.StreamHandler(sys.stdout),
+    ]
+)
+
+```
+
+```{python}
+import pathlib
+from typing import Any
+```
+
+```{python}
+import numpy as np
+import pandas as pd
+from sklearn import feature_extraction
+from sklearn import linear_model
+from sklearn import metrics
+```
+
+## Global Definitions
+
+```{python}
+logger = logging.getLogger(__name__)
+```
+
+```{python tags=c()}
+RESOURCES_DIR = pathlib.Path("~/src/resources/DataTalksClub/mlops-zoomcamp").expanduser()
+```
+
+```{python}
+CATEGORICAL_COLS = ["PUlocationID", "DOlocationID"]
+```
+
+```{python}
+TARGET_COL = "duration"
+```
+
+```{python tags=c()}
+def load_raw_data(file_path: pathlib.Path) -> pd.DataFrame:
+    p = file_path.resolve()
+    if not p.exists():
+        raise ValueError(f"Data file path does not exist: {p}")
+    
+    logger.info(f"Loading parquet file from path: {p}")
+    return pd.read_parquet(p)
+```
+
+```{python}
+def pre_process_data(df: pd.DataFrame, categorical: list = None) -> None:
+    categorical = categorical or CATEGORICAL_COLS
+    
+    logger.info(f"Sanitizing data types for categorical columns: {categorical}")
+    df[categorical] = np.where(
+        df[categorical].notnull(), df[categorical].astype(str), None
+    )
+```
+
+```{python}
+def compute_duration(df: pd.DataFrame) -> None:
+    logger.info("Computing drip duration.")
+    df["duration"] = df.dropOff_datetime - df.pickup_datetime
+    df.duration = df.duration.dt.total_seconds() / 60.0
+```
+
+```{python}
+def drop_outliers(
+    df: pd.DataFrame, min_duration:int = 1, max_duration: int = 60
+) -> pd.DataFrame:
+    if max_duration < min_duration:
+        raise ValueError(
+            f"max_duration ({max_duration}) must be smaller "
+            f"than the min_duration ({min_duration})."
+        )
+    logger.info(f"Filtering for trips between {min_duration} and {max_duration} minutes.")
+    return df[((df.duration >= 1) & (df.duration <= 60))]
+```
+
+```{python}
+def fill_missing_values(
+    df: pd.DataFrame, fill_value: int = "-1", cols: list = None
+) -> pd.DataFrame:
+    
+    cols = cols or CATEGORICAL_COLS
+    logger.info(f"Filling missing columns: {cols}")
+
+    fill_dict = {col: fill_value for col in cols}
+    
+    logger.info(f"Filling missing values with {fill_value!r}.")
+    return df.fillna(fill_dict)
+```
+
+```{python}
+def load_data(
+    file_path: pathlib.Path,
+    min_duration: int = 1,
+    max_duration: int = 60,
+    categorical: list = None,
+    fill_value: Any = "-1",
+) -> pd.DataFrame:
+    
+    categorical = categorical or CATEGORICAL_COLS
+
+    logger.info("Loading raw data.")
+    df = load_raw_data(file_path)
+    
+    logger.info("Pre-processing data.")
+    pre_process_data(df, categorical=categorical)
+    
+    logger.info("Computing trip durations.")
+    compute_duration(df)
+    
+    logger.info("Dropping outlier trips.")
+    df = drop_outliers(df)
+    
+    logger.info("Filling missing values.")
+    df = fill_missing_values(df, cols=categorical, fill_value=fill_value)
+    
+    return df
+```
+
+## Loading Raw Data
+
+```{python}
+training_data_path = RESOURCES_DIR.joinpath("data", "fhv_tripdata_2021-01.parquet")
+```
+
+```{python}
+df_train = load_raw_data(training_data_path)
+```
+
+# Questions
+
+
+## Q1. Downloading the data
+
+Read the data for January. How many records are there?
+
+- 1054112
+- **1154112**
+- 1254112
+- 1354112
+
+```{python}
+len(df_train)
+```
+
+<!-- #region tags=[] -->
+## Q2. Computing duration
+
+Now let's compute the duration variable. It should contain the duration of a ride in minutes.
+
+What's the average trip duration in January?
+
+- 15.16
+- **19.16**
+- 24.16
+- 29.16
+<!-- #endregion -->
+
+```{python}
+compute_duration(df_train)
+```
+
+```{python}
+df_train.duration.mean()
+```
+
+## Data preparation
+Check the distribution of the duration variable. There are some outliers.
+
+Let's remove them and keep only the records where the duration was between 1 and 60 minutes (inclusive).
+
+How many records did you drop?
+
+```{python}
+orig_train_len = len(df_train)
+```
+
+```{python}
+orig_train_len
+```
+
+```{python}
+df_train = drop_outliers(df_train)
+```
+
+```{python tags=c()}
+orig_train_len - len(df_train)
+```
+
+There were **44,286** records dropped.
+
+
+## Q3. Missing values
+The features we'll use for our model are the pickup and dropoff location IDs.
+
+But they have a lot of missing values there. Let's replace them with "-1".
+
+What's the fractions of missing values for the pickup location ID? I.e. fraction of "-1"s after you filled the NAs.
+
+- 53%
+- 63%
+- 73%
+- **83%**
+
+```{python}
+logger.info("Pre-processing to fix data types.")
+pre_process_data(df_train)
+```
+
+```{python}
+df_train = fill_missing_values(df_train)
+```
+
+```{python}
+(df_train[CATEGORICAL_COLS] == "-1").mean()
+```
+
+## Q4. One-hot encoding
+Let's apply one-hot encoding to the pickup and dropoff location IDs. We'll use only these two features for our model.
+
+Turn the dataframe into a list of dictionaries
+Fit a dictionary vectorizer
+Get a feature matrix from it
+What's the dimensionality of this matrix? (The number of columns).
+
+What's the dimensionality of this matrix? (The number of columns).
+
+- 2
+- 152
+- 352
+- **525**
+- 725
+
+```{python}
+dv = feature_extraction.DictVectorizer()
+```
+
+```{python}
+train_dicts = df_train[CATEGORICAL_COLS].to_dict(orient="records")
+```
+
+```{python}
+train_dicts[:5]
+```
+
+```{python}
+X_train = dv.fit_transform(train_dicts)
+X_train.shape
+```
+
+## Q5. Training a model
+Now let's use the feature matrix from the previous step to train a model.
+
+Train a plain linear regression model with default parameters
+Calculate the RMSE of the model on the training data
+What's the RMSE on train?
+
+- 5.52
+- **10.52**
+- 15.52
+- 20.52
+
+```{python}
+y_train = df_train[TARGET_COL].values
+```
+
+```{python}
+lr = linear_model.LinearRegression()
+
+lr.fit(X_train, y_train)
+```
+
+```{python}
+y_pred_train = lr.predict(X_train)
+```
+
+```{python}
+metrics.mean_squared_error(y_train, y_pred_train, squared=False)
+```
+
+## Q6. Evaluating the model
+Now let's apply this model to the validation dataset (Feb 2021).
+
+What's the RMSE on validation?
+
+- 6.01
+- **11.01**
+- 16.01
+- 21.01
+
+```{python}
+validation_data_path = RESOURCES_DIR.joinpath("data", "fhv_tripdata_2021-02.parquet")
+```
+
+```{python}
+df_val = load_data(validation_data_path)
+```
+
+```{python}
+val_dicts = df_val[CATEGORICAL_COLS].to_dict(orient="records")
+X_val = dv.transform(val_dicts)
+y_val = df_val[TARGET_COL].values
+```
+
+```{python}
+y_pred_val = lr.predict(X_val)
+
+metrics.mean_squared_error(y_val, y_pred_val, squared=False)
+```
