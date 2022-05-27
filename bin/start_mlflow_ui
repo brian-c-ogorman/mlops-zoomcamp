@@ -1,0 +1,22 @@
+#!/bin/bash
+
+set -e
+
+readonly MLFLOW_TRACKING_URI='http://127.0.0.1:5000'
+
+readonly ROOT_PATH="${HOME}/src/resources/DataTalksClub/mlops-zoomcamp"
+readonly SQLITE_PATH="${ROOT_PATH}/sqlite/mlflow.db"
+readonly ARTIFACT_PATH="${ROOT_PATH}/artifacts"
+
+cmd=(
+  mlflow ui
+  --backend-store-uri "sqlite:///${SQLITE_PATH}"
+  --default-artifact-root "${ARTIFACT_PATH}"
+)
+
+echo 'Starting MLflow UI with command:'
+echo "${cmd[@]}"
+
+"${cmd[@]}"
+
+echo 'MLflow UI has been shut down.'

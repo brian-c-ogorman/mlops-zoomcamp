@@ -1,8 +1,12 @@
 altair
+hyperopt
 ipython
 jupyterlab
 jupytext
+matplotlib
+mlflow
 numpy
 pandas
 pyarrow
-scikit-learn
+scikit-learn <= 1.1.0
+seaborn
